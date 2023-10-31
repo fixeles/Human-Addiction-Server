@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using System.Text;
 using HumanAddictionServer.Models;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -15,6 +14,7 @@ namespace HumanAddictionServer
         public Startup(IConfiguration configuration)
         {
             Configuration = configuration;
+            JwtSettings.Init(Configuration.GetSection("JwtSettings"));
         }
 
         public void ConfigureServices(IServiceCollection services)
@@ -28,9 +28,9 @@ namespace HumanAddictionServer
                         ValidateAudience = true,
                         ValidateLifetime = true,
                         ValidateIssuerSigningKey = true,
-                        ValidIssuer = "V&A_Games_server",
-                        ValidAudience = "human_addiction_first_server",
-                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("iDSRKj3uFHX_Vzq7ihMT4wDsERua0kLRdMz_qMGI2pkW4jUiEoVP"))
+                        ValidIssuer = JwtSettings.Issuer,
+                        ValidAudience = JwtSettings.Audience,
+                        IssuerSigningKey = JwtSettings.SecurityKey
                     };
                 });
             services.Configure<IdentityOptions>(options =>
@@ -39,7 +39,7 @@ namespace HumanAddictionServer
                 options.User.AllowedUserNameCharacters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._@+";
             });
 
-            
+
             services.AddDbContext<ApplicationDbContext>(options =>
             {
                 options.UseSqlite(Configuration.GetConnectionString("DefaultConnection"));
@@ -71,7 +71,7 @@ namespace HumanAddictionServer
         }
 
     }
-    
+
     public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     {
         public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)

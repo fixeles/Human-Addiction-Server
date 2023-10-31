@@ -5,6 +5,7 @@ public class LoginViewModel
 {
     [Required]
     [EmailAddress]
+    [Key]
     public string Email { get; set; } = string.Empty;
 
     [Required]
