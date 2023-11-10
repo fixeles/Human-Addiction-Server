@@ -1,11 +1,15 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Net;
+using System.Net.Mail;
 using System.Security.Claims;
 using System.Text;
 using HumanAddictionServer.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+
 namespace HumanAddictionServer.Controllers;
 
 [Route("api/account")]
@@ -39,38 +43,82 @@ public class AccountController : ControllerBase
 
         var user = new ApplicationUser
         {
-            UserName = model.Email, Email = model.Email
+            UserName = model.Email,
+            Email = model.Email
         };
 
         var result = await _userManager.CreateAsync(user, model.Password);
 
-        if (result.Succeeded)
-        {
-            // В этом месте вы можете выполнить дополнительные действия после успешной регистрации,
-            // например, создание профиля пользователя в базе данных.
+        if (!result.Succeeded)
+            return BadRequest(new { Message = "Registration failed", result.Errors });
 
-            return Ok(new { Message = "Registration successful" });
-        }
-
-        return BadRequest(new { Message = "Registration failed", result.Errors });
+        var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+        var confirmationLink = Url.Action("ConfirmEmail", "Account", new { userId = user.Id, token }, Request.Scheme);
+        if (confirmationLink != null)
+            await SendConfirmationEmailAsync(model.Email, confirmationLink);
+        return Ok(new { Message = "Registration successful. Confirmation email sent." });
     }
 
+    [AllowAnonymous]
+    [HttpGet("confirm-email")]
+    public async Task<IActionResult> ConfirmEmail(string? userId, string? token)
+    {
+        if (userId == null || token == null)
+            return BadRequest(new { Message = "Invalid confirmation link" });
+
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user == null)
+            return BadRequest(new { Message = "User not found" });
+
+        var result = await _userManager.ConfirmEmailAsync(user, token);
+        if (result.Succeeded)
+            return Ok(new { Message = "Email confirmation successful" });
+
+        return BadRequest(new { Message = "Email confirmation failed", result.Errors });
+    }
+
+    private async Task SendConfirmationEmailAsync(string email, string confirmationLink)
+    {
+        const string smtpHost = "smtp.gmail.com";
+        const int smtpPort = 587;
+        const string smtpUsername = "VnA.Games.HA@gmail.com";
+        const string smtpPassword = "xcoi huck hiqe buki";
+
+        using var client = new SmtpClient(smtpHost, smtpPort);
+        client.UseDefaultCredentials = false;
+        client.Credentials = new NetworkCredential(smtpUsername, smtpPassword);
+        client.EnableSsl = true;
+
+        var message = new MailMessage
+        {
+            Subject = "Confirm your email",
+            Body = $"Please confirm your email by clicking on the link: {confirmationLink} ",
+            IsBodyHtml = false,
+            From = new MailAddress(smtpUsername, "Human Addiction"),
+            To = { new MailAddress(email) }
+        };
+
+        await client.SendMailAsync(message);
+    }
 
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginViewModel model)
     {
+        var user = await _userManager.FindByNameAsync(model.Email);
+
+        if (user == null)
+            return BadRequest(new { Message = "Login failed", Error = "Invalid username or password" });
+        
+        if (!await _userManager.IsEmailConfirmedAsync(user))
+            return BadRequest(new { Message = "Login failed", Error = "Email not confirmed" });
+        
         var result = await _signInManager.PasswordSignInAsync(model.Email, model.Password, isPersistent: false, lockoutOnFailure: false);
-
-        if (result.Succeeded)
-        {
-            var user = await _userManager.FindByNameAsync(model.Email);
-            var token = GenerateJwtToken(user!);
-
-            return Ok(new { Token = token, Message = "Login successful" });
-        }
-
-        return BadRequest(new { Message = "Login failed", Error = "Invalid username or password" });
+        if (!result.Succeeded)
+            return BadRequest(new { Message = "Login failed", Error = "Invalid username or password" });
+        
+        return Ok(new { Token = GenerateJwtToken(user), Message = "Login successful" });
     }
+
 
     private string GenerateJwtToken(ApplicationUser user)
     {
@@ -78,7 +126,7 @@ public class AccountController : ControllerBase
         {
             new(ClaimTypes.NameIdentifier, user.Id),
             new(ClaimTypes.Name, user.UserName!)
-            // Другие клеймы, которые вы хотите добавить в токен
+            //other claims
         };
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtSettings.Key));
